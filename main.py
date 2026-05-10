@@ -1,60 +1,79 @@
 import discord
 import requests
-import base64
+import pytesseract
+from PIL import Image
+import io
 import os
+import datetime
 
-# Mengambil data rahasia dari Environment Variables Railway
+# Konfigurasi
 TOKEN = os.getenv('DISCORD_TOKEN')
-WEB_APP_URL = os.getenv('GOOGLE_SCRIPT_URL')
-
-# Masukkan ID Channel spesifik di sini
+# Gunakan URL Google Sheets kamu (yang lama juga bisa, tapi pastikan doPost-nya sederhana)
+WEB_APP_URL = os.getenv('GOOGLE_SCRIPT_URL') 
 TARGET_CHANNEL_ID = 1502571869189177434
 
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
+def extract_data(text):
+    lines = text.split('\n')
+    pelanggan = "Tidak ditemukan"
+    plate = "Tidak ditemukan"
+    orders = []
+    
+    for i, line in enumerate(lines):
+        clean_line = line.strip().upper()
+        if "CUSTOMER" in clean_line:
+            # Mengambil baris setelah kata Customer
+            if i+1 < len(lines): pelanggan = lines[i+1].strip()
+        if "PLATE" in clean_line:
+            # Mengambil baris setelah kata Plate
+            if i+1 < len(lines): plate = lines[i+1].strip()
+        if "(1X)" in clean_line or "(X" in clean_line:
+            orders.append(line.strip())
+            
+    return pelanggan, plate, ", ".join(orders)
+
 @client.event
 async def on_ready():
-    print(f'Bot sudah online sebagai {client.user}')
+    print(f'Bot Tesseract Online: {client.user}')
 
 @client.event
 async def on_message(message):
-    # 1. Abaikan pesan dari bot itu sendiri
-    if message.author == client.user:
+    if message.author == client.user or message.channel.id != TARGET_CHANNEL_ID:
         return
 
-    # 2. CEK CHANNEL: Hanya proses jika pesan dikirim di channel yang ditentukan
-    if message.channel.id != TARGET_CHANNEL_ID:
-        return
-
-    # 3. Cek apakah ada lampiran (attachment)
     if message.attachments:
         for attachment in message.attachments:
-            # Pastikan yang dikirim adalah gambar
             if any(attachment.filename.lower().endswith(ext) for ext in ['png', 'jpg', 'jpeg']):
-                loading_msg = await message.channel.send("Sedang memproses screenshot... 🔍")
+                status_msg = await message.channel.send("Memproses dengan Tesseract... ⚙️")
                 
                 try:
-                    # Download gambar dan ubah ke format Base64
+                    # 1. Download Gambar
                     img_data = requests.get(attachment.url).content
-                    encoded_img = base64.b64encode(img_data).decode('utf-8')
+                    img = Image.open(io.BytesIO(img_data))
                     
-                    # Siapkan data untuk dikirim ke Google Sheets
+                    # 2. OCR Lokal (Tanpa Google Drive)
+                    text = pytesseract.image_to_string(img)
+                    pelanggan, plate, detail_order = extract_data(text)
+                    
+                    # 3. Kirim ke Google Sheets
                     payload = {
-                        "image": encoded_img,
-                        "mechanicName": message.author.display_name
+                        "mechanicName": message.author.display_name,
+                        "pelanggan": pelanggan,
+                        "plate": plate,
+                        "orders": detail_order
                     }
                     
-                    # Tembak data ke Google Apps Script
                     response = requests.post(WEB_APP_URL, json=payload)
                     
                     if response.status_code == 200:
-                        await loading_msg.edit(content=f"✅ {response.text}")
+                        await status_msg.edit(content=f"✅ Berhasil mencatat: **{pelanggan}**")
                     else:
-                        await loading_msg.edit(content="❌ Gagal mengirim data ke Google Sheets.")
+                        await status_msg.edit(content="❌ Gagal mengirim data ke Sheets.")
                 
                 except Exception as e:
-                    await loading_msg.edit(content=f"❌ Terjadi kesalahan: {str(e)}")
+                    await status_msg.edit(content=f"❌ Error: {str(e)}")
 
 client.run(TOKEN)
