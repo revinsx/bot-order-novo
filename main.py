@@ -7,6 +7,9 @@ import os
 TOKEN = os.getenv('DISCORD_TOKEN')
 WEB_APP_URL = os.getenv('GOOGLE_SCRIPT_URL')
 
+# Masukkan ID Channel spesifik di sini
+TARGET_CHANNEL_ID = 1502571869189177434
+
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
@@ -17,11 +20,15 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    # Abaikan pesan dari bot itu sendiri
+    # 1. Abaikan pesan dari bot itu sendiri
     if message.author == client.user:
         return
 
-    # Cek apakah ada lampiran (attachment)
+    # 2. CEK CHANNEL: Hanya proses jika pesan dikirim di channel yang ditentukan
+    if message.channel.id != TARGET_CHANNEL_ID:
+        return
+
+    # 3. Cek apakah ada lampiran (attachment)
     if message.attachments:
         for attachment in message.attachments:
             # Pastikan yang dikirim adalah gambar
