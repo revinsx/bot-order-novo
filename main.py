@@ -6,6 +6,11 @@ import io
 import os
 import datetime
 
+# --- TAMBAHKAN BARIS INI ---
+# Ini memberitahu Python lokasi Tesseract di server Linux (Railway)
+pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract' 
+# ---------------------------
+
 # Konfigurasi
 TOKEN = os.getenv('DISCORD_TOKEN')
 # Gunakan URL Google Sheets kamu (yang lama juga bisa, tapi pastikan doPost-nya sederhana)
