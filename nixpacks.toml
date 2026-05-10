@@ -1,5 +1,5 @@
 [phases.setup]
-nixPkgs = ["python3", "tesseract", "tesseract-ocr"]
+nixPkgs = ["python3", "tesseract"]
 
 [phases.install]
 cmds = ["pip install -r requirements.txt"]
