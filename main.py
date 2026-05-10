@@ -4,17 +4,20 @@ import pytesseract
 from PIL import Image
 import io
 import os
-import datetime
+import shutil
 
-# --- TAMBAHKAN BARIS INI ---
-# Ini memberitahu Python lokasi Tesseract di server Linux (Railway)
-pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract' 
-# ---------------------------
+# --- PENGATURAN TESSERACT ---
+# Mencari lokasi instalasi Tesseract secara otomatis di sistem Railway
+tesseract_path = shutil.which("tesseract")
+if tesseract_path:
+    pytesseract.pytesseract.tesseract_cmd = tesseract_path
+    print(f"Tesseract ditemukan di: {tesseract_path}")
+else:
+    print("PERINGATAN: Tesseract tidak ditemukan!")
 
-# Konfigurasi
+# --- KONFIGURASI BOT ---
 TOKEN = os.getenv('DISCORD_TOKEN')
-# Gunakan URL Google Sheets kamu (yang lama juga bisa, tapi pastikan doPost-nya sederhana)
-WEB_APP_URL = os.getenv('GOOGLE_SCRIPT_URL') 
+WEB_APP_URL = os.getenv('GOOGLE_SCRIPT_URL')
 TARGET_CHANNEL_ID = 1502571869189177434
 
 intents = discord.Intents.default()
@@ -22,6 +25,7 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 
 def extract_data(text):
+    """Fungsi untuk mencari nama pelanggan, plat, dan order dari teks OCR"""
     lines = text.split('\n')
     pelanggan = "Tidak ditemukan"
     plate = "Tidak ditemukan"
@@ -29,12 +33,15 @@ def extract_data(text):
     
     for i, line in enumerate(lines):
         clean_line = line.strip().upper()
+        # Cari Nama Pelanggan
         if "CUSTOMER" in clean_line:
-            # Mengambil baris setelah kata Customer
-            if i+1 < len(lines): pelanggan = lines[i+1].strip()
+            if i+1 < len(lines):
+                pelanggan = lines[i+1].strip()
+        # Cari Plat Nomor
         if "PLATE" in clean_line:
-            # Mengambil baris setelah kata Plate
-            if i+1 < len(lines): plate = lines[i+1].strip()
+            if i+1 < len(lines):
+                plate = lines[i+1].strip()
+        # Cari Detail Order (biasanya mengandung (1x) atau (x)
         if "(1X)" in clean_line or "(X" in clean_line:
             orders.append(line.strip())
             
@@ -42,7 +49,7 @@ def extract_data(text):
 
 @client.event
 async def on_ready():
-    print(f'Bot Tesseract Online: {client.user}')
+    print(f'Bot Tesseract Aktif: {client.user}')
 
 @client.event
 async def on_message(message):
@@ -52,31 +59,31 @@ async def on_message(message):
     if message.attachments:
         for attachment in message.attachments:
             if any(attachment.filename.lower().endswith(ext) for ext in ['png', 'jpg', 'jpeg']):
-                status_msg = await message.channel.send("Memproses dengan Tesseract... ⚙️")
+                status_msg = await message.channel.send("Memproses gambar (Tesseract)... ⚙️")
                 
                 try:
-                    # 1. Download Gambar
-                    img_data = requests.get(attachment.url).content
-                    img = Image.open(io.BytesIO(img_data))
+                    # 1. Ambil Gambar
+                    response_img = requests.get(attachment.url)
+                    img = Image.open(io.BytesIO(response_img.content))
                     
-                    # 2. OCR Lokal (Tanpa Google Drive)
-                    text = pytesseract.image_to_string(img)
-                    pelanggan, plate, detail_order = extract_data(text)
+                    # 2. Proses OCR Lokal
+                    raw_text = pytesseract.image_to_string(img)
+                    cust, plt, ords = extract_data(raw_text)
                     
-                    # 3. Kirim ke Google Sheets
+                    # 3. Kirim data teks ke Google Apps Script
                     payload = {
                         "mechanicName": message.author.display_name,
-                        "pelanggan": pelanggan,
-                        "plate": plate,
-                        "orders": detail_order
+                        "pelanggan": cust,
+                        "plate": plt,
+                        "orders": ords if ords else "Tidak ada detail"
                     }
                     
-                    response = requests.post(WEB_APP_URL, json=payload)
+                    post_to_sheet = requests.post(WEB_APP_URL, json=payload)
                     
-                    if response.status_code == 200:
-                        await status_msg.edit(content=f"✅ Berhasil mencatat: **{pelanggan}**")
+                    if post_to_sheet.status_code == 200:
+                        await status_msg.edit(content=f"✅ Data dicatat! \n**Pelanggan:** {cust} \n**Plat:** {plt}")
                     else:
-                        await status_msg.edit(content="❌ Gagal mengirim data ke Sheets.")
+                        await status_msg.edit(content="❌ Gagal mengirim ke Spreadsheet.")
                 
                 except Exception as e:
                     await status_msg.edit(content=f"❌ Error: {str(e)}")
