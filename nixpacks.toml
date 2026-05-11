@@ -1,7 +1,0 @@
-[phases.setup]
-nixPkgs = ["python311", "python311Packages.pip", "tesseract"]
-
-[phases.install]
-# Kita tambahkan flag --break-system-packages agar Python mau menginstal library 
-# meskipun berada di lingkungan yang "managed" oleh Nix.
-cmds = ["python3 -m pip install --break-system-packages -r requirements.txt"]
