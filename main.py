@@ -4,18 +4,11 @@ import pytesseract
 from PIL import Image
 import io
 import os
-import shutil
+import datetime
 
-# --- KONFIGURASI SISTEM TESSERACT ---
-# Fungsi ini secara otomatis mencari di mana Railway menginstal Tesseract
-tesseract_path = shutil.which("tesseract")
-if tesseract_path:
-    pytesseract.pytesseract.tesseract_cmd = tesseract_path
-    print(f"✅ Tesseract ditemukan di: {tesseract_path}")
-else:
-    # Jika tidak ditemukan secara otomatis, kita coba arahkan ke lokasi standar Linux
-    pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
-    print("⚠️ Tesseract tidak ditemukan oleh shutil, mencoba lokasi standar /usr/bin/tesseract")
+# --- KONFIGURASI TESSERACT (DOCKER/UBUNTU) ---
+# Di Docker (python:3.11-slim), tesseract selalu terpasang di sini
+pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
 
 # --- KONFIGURASI BOT & GOOGLE SHEETS ---
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -27,7 +20,7 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 
 def extract_data(text):
-    """Fungsi ekstraksi data dari teks hasil scan OCR"""
+    """Fungsi cerdas untuk mengambil data dari teks hasil scan"""
     lines = text.split('\n')
     pelanggan = "Tidak ditemukan"
     plate = "Tidak ditemukan"
@@ -36,84 +29,88 @@ def extract_data(text):
     for i, line in enumerate(lines):
         clean_line = line.strip().upper()
         
-        # Logika mencari Nama Pelanggan (Customer)
+        # Mencari Nama Pelanggan (biasanya di bawah baris 'Customer')
         if "CUSTOMER" in clean_line:
-            if i+1 < len(lines):
+            if i+1 < len(lines) and lines[i+1].strip():
                 pelanggan = lines[i+1].strip()
         
-        # Logika mencari Plat Nomor (Plate)
+        # Mencari Plat Nomor (biasanya di bawah baris 'Plate')
         if "PLATE" in clean_line:
-            if i+1 < len(lines):
+            if i+1 < len(lines) and lines[i+1].strip():
                 plate = lines[i+1].strip()
         
-        # Logika mencari item pesanan, misal: "Repair (1x)"
-        # Tesseract terkadang membaca (1x) sebagai (ix) atau (tx), kita buat lebih fleksibel
+        # Mencari detail pesanan (mencari pola (x) atau (1x))
         lower_line = line.lower()
-        if "(x" in lower_line or "(1x)" in lower_line or "x)" in lower_line:
+        if "(x" in lower_line or "x)" in lower_line or "(1x)" in lower_line:
             orders.append(line.strip())
             
     return pelanggan, plate, ", ".join(orders)
 
 @client.event
 async def on_ready():
-    print(f'--- Bot Mekanik Online ---')
+    print(f'======================================')
+    print(f'🟢 BOT MEKANIK DOCKER ONLINE')
     print(f'Logged in as: {client.user}')
-    print(f'Target Channel ID: {TARGET_CHANNEL_ID}')
-    print(f'--------------------------')
+    print(f'Tesseract Path: {pytesseract.pytesseract.tesseract_cmd}')
+    print(f'======================================')
 
 @client.event
 async def on_message(message):
-    # Abaikan pesan dari bot sendiri atau di luar channel target
+    # Validasi: Abaikan bot sendiri & pastikan channel benar
     if message.author == client.user or message.channel.id != TARGET_CHANNEL_ID:
         return
 
-    # Jika pesan berisi lampiran (gambar)
+    # Jika ada gambar yang dikirim
     if message.attachments:
         for attachment in message.attachments:
-            # Cek apakah file tersebut adalah gambar
             if any(attachment.filename.lower().endswith(ext) for ext in ['png', 'jpg', 'jpeg']):
-                status_msg = await message.channel.send("🔍 Sedang memproses screenshot (Tesseract)...")
+                
+                status_msg = await message.channel.send("⌛ **Memproses Screenshot...**")
                 
                 try:
-                    # 1. Ambil data gambar dari Discord
-                    response_img = requests.get(attachment.url)
-                    img = Image.open(io.BytesIO(response_img.content))
+                    # 1. Download Gambar
+                    img_data = requests.get(attachment.url).content
+                    img = Image.open(io.BytesIO(img_data))
                     
-                    # 2. Jalankan OCR Lokal (Tesseract)
-                    # Kita gunakan config tambahan agar Tesseract lebih fokus baca teks
+                    # 2. Proses OCR Lokal (Tesseract)
+                    # psm 3: Automatic page segmentation (standar)
                     raw_text = pytesseract.image_to_string(img, config='--psm 3')
                     
-                    # 3. Ekstrak informasi penting
+                    # 3. Ekstraksi Informasi
                     cust, plt, ords = extract_data(raw_text)
                     
-                    # 4. Siapkan data untuk dikirim ke Google Sheets
+                    # 4. Kirim Data ke Google Sheets
                     payload = {
                         "mechanicName": message.author.display_name,
                         "pelanggan": cust,
                         "plate": plt,
-                        "orders": ords if ords else "Detail pesanan tidak terbaca"
+                        "orders": ords if ords else "Detail tidak terbaca"
                     }
                     
-                    # 5. Kirim ke URL Google Apps Script (Web App)
-                    post_to_sheet = requests.post(WEB_APP_URL, json=payload)
+                    response = requests.post(WEB_APP_URL, json=payload)
                     
-                    if post_to_sheet.status_code == 200:
-                        embed = discord.Embed(title="✅ Data Berhasil Dicatat", color=0x00ff00)
-                        embed.add_field(name="Mekanik", value=message.author.display_name, inline=True)
-                        embed.add_field(name="Pelanggan", value=cust, inline=True)
-                        embed.add_field(name="Plat Nomor", value=plt, inline=True)
-                        embed.add_field(name="Pesanan", value=ords if ords else "-", inline=False)
-                        embed.set_footer(text="Sistem OCR Tesseract Lokal")
+                    if response.status_code == 200:
+                        # Buat tampilan yang rapi di Discord
+                        embed = discord.Embed(
+                            title="✅ Laporan Mekanik Berhasil Dicatat",
+                            color=0x2ecc71, # Warna Hijau
+                            timestamp=datetime.datetime.now()
+                        )
+                        embed.add_field(name="👤 Mekanik", value=message.author.mention, inline=True)
+                        embed.add_field(name="🚘 Plat Nomor", value=f"`{plt}`", inline=True)
+                        embed.add_field(name="🤝 Pelanggan", value=cust, inline=False)
+                        embed.add_field(name="🛠️ Detail Pekerjaan", value=ords if ords else "-", inline=False)
+                        embed.set_footer(text="System OCR Docker-Tesseract")
                         
                         await status_msg.edit(content=None, embed=embed)
                     else:
-                        await status_msg.edit(content=f"❌ Gagal mengirim ke Sheets (Status: {post_to_sheet.status_code})")
+                        await status_msg.edit(content=f"❌ Gagal mengirim ke Sheets. Error Code: {response.status_code}")
                 
                 except Exception as e:
-                    await status_msg.edit(content=f"❌ Terjadi kesalahan: `{str(e)}`")
+                    await status_msg.edit(content=f"❌ **Terjadi Error:**\n`{str(e)}`")
 
 # Jalankan Bot
 if TOKEN:
     client.run(TOKEN)
 else:
-    print("ERROR: DISCORD_TOKEN tidak ditemukan di environment variables!")
+    print("❌ ERROR: DISCORD_TOKEN tidak ditemukan!")
