@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, Partials } = require('discord.js');
 const axios = require('axios');
 
 const client = new Client({
@@ -6,18 +6,22 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent
-    ]
+    ],
+    // Partials ditambahkan agar bot stabil membaca pesan di Thread/Channel lama
+    partials: [Partials.Message, Partials.Channel] 
 });
 
 const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL;
-const TARGET_CHANNEL_ID = process.env.TARGET_CHANNEL_ID;
+const TARGET_CHANNEL_ID = process.env.TARGET_CHANNEL_ID; // <--- Isi dengan ID THREAD Anda
 
 client.once('ready', () => {
-    console.log(`Bot Keuangan Aktif! Logged in as ${client.user.tag}`);
+    console.log(`Bot Keuangan Aktif (Mode Thread)! Logged in as ${client.user.tag}`);
 });
 
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
+    
+    // Pengecekan ID Thread (ID Thread diperlakukan sama seperti ID Channel biasa)
     if (message.channel.id !== TARGET_CHANNEL_ID) return;
     
     const trigger = message.content.charAt(0);
@@ -34,6 +38,7 @@ client.on('messageCreate', async (message) => {
         return message.reply('Format salah. Contoh: `-50000 makan siang` atau `+1000000 gajian` (Gunakan spasi setelah angka).');
     }
 
+    // Mengirim status "typing..." di dalam thread
     await message.channel.sendTyping();
 
     try {
