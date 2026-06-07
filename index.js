@@ -14,7 +14,7 @@ const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL;
 const TARGET_CHANNEL_ID = process.env.TARGET_CHANNEL_ID;
 
 client.once('ready', () => {
-    console.log(`Bot Keuangan Aktif (Nama Terbaca)! Logged in as ${client.user.tag}`);
+    console.log(`Bot Keuangan Aktif (USD Mode)! Logged in as ${client.user.tag}`);
 });
 
 client.on('messageCreate', async (message) => {
@@ -32,32 +32,33 @@ client.on('messageCreate', async (message) => {
     const jumlah = parseFloat(jumlahStr);
 
     if (isNaN(jumlah)) {
-        return message.reply('Format salah. Contoh: `-50000 makan siang` atau `+1000000 gajian` (Gunakan spasi setelah angka).');
+        return message.reply('Format salah. Contoh: `-50 coffee` atau `+1500 salary` (Gunakan spasi setelah angka).');
     }
 
     await message.channel.sendTyping();
 
     try {
-        // Mengirim data tambahan berupa username discord pengirim pesan
         const response = await axios.post(APPS_SCRIPT_URL, {
             tipe: trigger,
             jumlah: jumlah,
             keterangan: keterangan,
-            username: message.author.username // <--- Mengirim nama global username Discord
+            username: message.author.username
         });
 
         if (response.data.status === 'success') {
             const lastBalance = response.data.lastBalance;
-            const formatRupiah = (angka) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(angka);
+            
+            // MENGUBAH FORMAT KE USD DOLLAR
+            const formatDollar = (angka) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(angka);
 
             let embedResponse = {
                 color: trigger === '+' ? 0x00ff00 : 0xff0000,
-                title: trigger === '+' ? '📈 Pemasukan Tercatat' : '📉 Pengeluaran Tercatat',
+                title: trigger === '+' ? '📈 Income Recorded' : '📉 Expense Recorded',
                 fields: [
-                    { name: 'Nominal', value: formatRupiah(jumlah), inline: true },
-                    { name: 'Keterangan', value: keterangan, inline: true },
-                    { name: 'Oleh', value: message.author.username, inline: true }, // Ditampilkan juga di embed Discord
-                    { name: 'Saldo Terakhir', value: `**${formatRupiah(lastBalance)}**`, inline: false }
+                    { name: 'Amount', value: formatDollar(jumlah), inline: true },
+                    { name: 'Description', value: keterangan, inline: true },
+                    { name: 'By', value: message.author.username, inline: true },
+                    { name: 'Last Balance', value: `**${formatDollar(lastBalance)}**`, inline: false }
                 ],
                 timestamp: new Date()
             };
