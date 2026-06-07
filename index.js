@@ -7,21 +7,18 @@ const client = new Client({
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent
     ],
-    // Partials ditambahkan agar bot stabil membaca pesan di Thread/Channel lama
     partials: [Partials.Message, Partials.Channel] 
 });
 
 const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL;
-const TARGET_CHANNEL_ID = process.env.TARGET_CHANNEL_ID; // <--- Isi dengan ID THREAD Anda
+const TARGET_CHANNEL_ID = process.env.TARGET_CHANNEL_ID;
 
 client.once('ready', () => {
-    console.log(`Bot Keuangan Aktif (Mode Thread)! Logged in as ${client.user.tag}`);
+    console.log(`Bot Keuangan Aktif (Nama Terbaca)! Logged in as ${client.user.tag}`);
 });
 
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
-    
-    // Pengecekan ID Thread (ID Thread diperlakukan sama seperti ID Channel biasa)
     if (message.channel.id !== TARGET_CHANNEL_ID) return;
     
     const trigger = message.content.charAt(0);
@@ -38,14 +35,15 @@ client.on('messageCreate', async (message) => {
         return message.reply('Format salah. Contoh: `-50000 makan siang` atau `+1000000 gajian` (Gunakan spasi setelah angka).');
     }
 
-    // Mengirim status "typing..." di dalam thread
     await message.channel.sendTyping();
 
     try {
+        // Mengirim data tambahan berupa username discord pengirim pesan
         const response = await axios.post(APPS_SCRIPT_URL, {
             tipe: trigger,
             jumlah: jumlah,
-            keterangan: keterangan
+            keterangan: keterangan,
+            username: message.author.username // <--- Mengirim nama global username Discord
         });
 
         if (response.data.status === 'success') {
@@ -58,7 +56,8 @@ client.on('messageCreate', async (message) => {
                 fields: [
                     { name: 'Nominal', value: formatRupiah(jumlah), inline: true },
                     { name: 'Keterangan', value: keterangan, inline: true },
-                    { name: 'Saldo Terakhir', value: `**${formatRupiah(lastBalance)}**` }
+                    { name: 'Oleh', value: message.author.username, inline: true }, // Ditampilkan juga di embed Discord
+                    { name: 'Saldo Terakhir', value: `**${formatRupiah(lastBalance)}**`, inline: false }
                 ],
                 timestamp: new Date()
             };
